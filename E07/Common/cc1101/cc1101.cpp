@@ -108,7 +108,17 @@ void CC1101::readBurst(uint8_t target, uint8_t* pdata, int count) {
 }
 
 void CC1101::reset() {
+    // Per datasheet section 19.1.2: set SCLK=1, SI=0 first
+    gpio_set_level((gpio_num_t)clock_pin, HIGH);
+    gpio_set_level((gpio_num_t)mosi_pin, LOW);
+    // Strobe CSn low/high, wait ≥40µs
+    gpio_set_level((gpio_num_t)cs_pin, LOW);
+    delayMicroseconds(5);
+    gpio_set_level((gpio_num_t)cs_pin, HIGH);
+    delayMicroseconds(40);
+
     writeStrobe(SRESET);
+    delayMicroseconds(100);
 }
 
 void CC1101::powerDown() {
@@ -137,7 +147,6 @@ void CC1101::begin(int mosi, int miso, int clk, int cs) {
 void CC1101::initialise() {
   writeRegister(IOCFG2, 0x01);   // GDO2 assert on FIFO Rx threshold met or FIFO Rx threshold exceeded.
   writeRegister(IOCFG0, 0x01);   // GDO0 = packet received.
-  //writeRegister(FIFOTHR, 0b00100111); // Rx attenuation, default thresholds.
   writeRegister(SYNC1, 'G');
   writeRegister(SYNC0, 'D');
   writeRegister(PKTLEN, 2);

@@ -100,7 +100,7 @@ class CC1101 {
   int transmitFifoCount();
   int receiveAvailable();
   uint8_t getVersion();
-  void loadTx(const void *pdata, uint8_t length);
+  void loadTx(const void *pdata, uint8_t length, uint8_t address);
   void fetchRx (void *pdata, uint8_t length);
   uint8_t getStatus();
 };

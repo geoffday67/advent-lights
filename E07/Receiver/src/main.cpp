@@ -6,7 +6,7 @@
 #define RADIO_MISO 19
 #define RADIO_CLK 18
 #define RADIO_CS 4
-#define RADIO_PACKET 16  // GDO0, we'll get an interrupt here when there's a packet available.
+#define RADIO_PACKET 16  // We'll get an interrupt here when there's a packet available.
 
 #define WAIT_ALL pdTRUE
 #define WAIT_ONE pdFALSE
@@ -41,12 +41,12 @@ void radioTask(void* pparameters) {
   while (1) {
     xEventGroupWaitBits(eventGroup, RADIO_RECEIVED, CLEAR_ON_EXIT, WAIT_ALL, portMAX_DELAY);
 
-    if (cc1101.receiveAvailable() >= 4) {  // 4 allows for 2 data bytes + 2 status bytes
-      cc1101.fetchRx(s, 4);
+    if (cc1101.receiveAvailable() >= 6) {  // 4 data bytes (1st is address) + 2 status bytes
+      cc1101.fetchRx(s, 6);
 
-      if (s[3] & 0x80) {
-        s[2] = 0;
-        Serial.printf("Received: [%s]\n", s);
+      if (s[5] & 0x80) {
+        s[4] = 0;
+        Serial.printf("Received: [%s]\n", s + 1);
       } else {
         Serial.println("CRC error");
       }

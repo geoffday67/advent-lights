@@ -1,0 +1,473 @@
+/* 
+ * File:   main.c
+ * Author: geoff
+ *
+ * Created on October 30, 2026, 3:39 PM
+ */
+
+// CONFIG1
+#pragma config FEXTOSC = OFF    // External Oscillator Mode Selection bits (Oscillator not enabled; RA5 free for I/O)
+#pragma config RSTOSC = HFINTOSC_32MHZ // Power-up Default Value for COSC bits
+#pragma config CLKOUTEN = OFF   // Clock Out Enable bit (CLKOUT function is disabled; I/O function on RA4)
+#pragma config VDDAR = LO       // VDD Range Analog Calibration Selection bit
+
+// CONFIG2
+#pragma config MCLRE = EXTMCLR  // Master Clear Enable bit (If LVP = 0, MCLR pin is MCLR; If LVP = 1, RA3 pin function is MCLR)
+#pragma config PWRTS = PWRT_OFF // Power-up Timer Selection bits (PWRT is disabled)
+#pragma config WDTE = OFF
+#pragma config BOREN = OFF      // Brown-out Reset Enable bits (Brown-out Reset disabled)
+#pragma config BORV = LO        // Brown-out Reset Voltage Selection bit (Brown-out Reset Voltage (VBOR) set to 1.9V)
+#pragma config PPS1WAY = ON     // PPSLOCKED One-Way Set Enable bit (The PPSLOCKED bit can be set once after an unlocking sequence is executed; once PPSLOCKED is set, all future changes to PPS registers are prevented)
+#pragma config STVREN = ON      // Stack Overflow/Underflow Reset Enable bit (Stack Overflow or Underflow will cause a reset)
+
+// CONFIG3
+
+// CONFIG4
+#pragma config BBSIZE = BB512   // Boot Block Size Selection bits (512 words boot block size)
+#pragma config BBEN = OFF       // Boot Block Enable bit (Boot Block is disabled)
+#pragma config SAFEN = OFF      // SAF Enable bit (SAF is disabled)
+#pragma config WRTAPP = OFF     // Application Block Write Protection bit (Application Block is not write-protected)
+#pragma config WRTB = OFF       // Boot Block Write Protection bit (Boot Block is not write-protected)
+#pragma config WRTC = OFF       // Configuration Registers Write Protection bit (Configuration Registers are not write-protected)
+#pragma config WRTSAF = OFF     // Storage Area Flash (SAF) Write Protection bit (SAF is not write-protected)
+#pragma config LVP = ON         // Low Voltage Programming Enable bit (Low Voltage programming enabled. MCLR/Vpp pin function is MCLR. MCLRE Configuration bit is ignored.)
+
+// CONFIG5
+#pragma config CP = OFF         // User Program Flash Memory Code Protection bit (User Program Flash Memory code protection is disabled)
+
+/*
+ * PIC16F15225, PDIP-14 (top view)
+ *
+ *                 +----U----+
+ *           VDD --| 1    14 |-- VSS
+ *           RA5 --| 2    13 |-- RA0/ICSPDAT
+ *           RA4 --| 3    12 |-- RA1/ICSPCLK
+ * /MCLR/VPP/RA3 --| 4    11 |-- RA2
+ *           RC5 --| 5    10 |-- RC0
+ *           RC4 --| 6     9 |-- RC1
+ *           RC3 --| 7     8 |-- RC2
+ *                 +---------+
+ */
+
+/*
+ * RA5 - CS.
+ * RA4 - CLK.
+ * RC5 - MISO.
+ * RC4 - MOSI.
+ * RC3 - GDO2.
+ * RC2 - Button to ground.
+ * RC1 - UART Tx.
+ * RC0 - Unused.
+ * RA2 - Unused.
+ * 
+ * Unused pins are driven low as outputs to avoid floating-input current in sleep.
+ */
+
+#define _XTAL_FREQ 4000000     // Must match the OSCFRQ setting at the start of main() (HFINTOSC 4 MHz)
+
+#include <xc.h>
+#include <stdint.h>
+
+// Pin access
+#define RADIO_CS    LATAbits.LATA5      // CC1101 CSn, active low
+#define RADIO_GDO2  PORTCbits.RC3       // CC1101 GDO2
+#define BUTTON      PORTCbits.RC2       // Low when pressed
+
+static void clock_init(void) {
+    // RSTOSC = HFINTOSC_32MHZ starts with OSCFRQ = 32 MHz; drop to 4 MHz.
+    OSCFRQ = 0b010;                     // FRQ = 010: 4 MHz (DS Section 11.3.4)
+    while (!OSCSTATbits.HFOR);          // Wait for HFINTOSC to lock at the new frequency
+}
+
+static void pins_init(void) {
+    // Analog select: all digital except the ICSP pins. RA0/RA1 are left analog
+    // so their digital input buffers are off when the programmer is unplugged.
+    ANSELA = 0b00000011;                // RA0, RA1 analog; RA2-RA5 digital
+    ANSELC = 0b00000000;                // All PORTC digital
+
+    // Output latches before enabling drivers, so nothing glitches.
+    LATA   = 0b00100000;                // RA5 (CS) high = radio deselected; RA4 (SCK) low = idle for CKP=0; RA2 low
+    LATC   = 0b00000010;                // RC1 (UART TX) high = idle; RC4 (MOSI) low; RC0 low
+
+    // Directions (1 = input).
+    TRISA  = 0b00001011;                // RA0, RA1 inputs (ICSP), RA3 input-only (MCLR); RA2, RA4, RA5 outputs
+    TRISC  = 0b00101100;                // RC2 (button), RC3 (GDO2), RC5 (MISO) inputs; RC0, RC1, RC4 outputs
+
+    // Weak pull-ups.
+    WPUA   = 0b00000000;
+    WPUC   = 0b00100100;                // RC2 button; RC5 MISO (CC1101 SO is high-Z while CSn is high)
+
+    // Peripheral Pin Select. PPSLOCKED is clear after reset, so no unlock is needed.
+    RA4PPS     = 0x07;                  // RA4 <- SCK1 output
+    SSP1CLKPPS = 0x04;                  // SCK1 input <- RA4 (must match the output pin in host mode)
+    RC4PPS     = 0x08;                  // RC4 <- SDO1 (MOSI)
+    SSP1DATPPS = 0x15;                  // SDI1 (MISO) <- RC5
+    RC1PPS     = 0x05;                  // RC1 <- TX1
+
+    // Lock PPS. GIE is still clear here, as the sequence requires.
+    // With PPS1WAY = ON this lasts until the next reset.
+    PPSLOCK = 0x55;
+    PPSLOCK = 0xAA;
+    PPSLOCKbits.PPSLOCKED = 1;
+}
+
+static void uart_init(void) {
+    // 38400 baud, 8N1, transmit only. Asynchronous, BRGH = 1, BRG16 = 1:
+    // baud = FOSC / (4 * (n + 1)) = 4 MHz / (4 * 26) = 38462 (+0.16 %).
+    // At 4 MHz the next standard rate up, 57600, is +2.12 % (DS Table 24-2),
+    // too close to the limit once HFINTOSC tolerance is added.
+    BAUD1CON = 0b00001000;              // BRG16 = 1, SCKP = 0 (TX idles high)
+    SP1BRGH  = 0;
+    SP1BRGL  = 25;
+    TX1STA   = 0b00100100;              // TXEN = 1, SYNC = 0, BRGH = 1
+    RC1STA   = 0b10000000;              // SPEN = 1 (receiver left disabled)
+}
+
+static void uart_putc(char c) {
+    while (!PIR1bits.TX1IF);            // Wait for TX1REG to be empty
+    TX1REG = c;
+}
+
+static void uart_puts(const char *s) {
+    while (*s) {
+        uart_putc(*s++);
+    }
+}
+
+static void uart_puthex(uint8_t v) {
+    static const char hex[] = "0123456789ABCDEF";
+    uart_puts("0x");
+    uart_putc(hex[v >> 4]);
+    uart_putc(hex[v & 0x0F]);
+}
+
+// ---------------------------------------------------------------------------
+// SPI (MSSP1, host) and CC1101 low-level access
+// ---------------------------------------------------------------------------
+
+#define RADIO_SO    PORTCbits.RC5       // CC1101 SO/MISO, read directly to see CHIP_RDYn
+
+#define CC1101_SRES         0x30        // Strobe: reset chip
+#define CC1101_PARTNUM      0x30        // Status register (needs burst bit to read)
+#define CC1101_VERSION      0x31        // Status register (needs burst bit to read)
+#define CC1101_READ         0x80
+#define CC1101_BURST        0x40
+
+static void spi_init(void) {
+    // SPI mode 0 for the CC1101: clock idles low, data sampled on the rising edge.
+    SSP1STAT = 0b01000000;              // SMP = 0, CKE = 1 (transmit on active-to-idle edge)
+    SSP1CON1 = 0b00100000;              // SSPEN = 1, CKP = 0, SSPM = 0000: host, FOSC/4 = 1 MHz
+}
+
+static uint8_t spi_xfer(uint8_t out) {
+    SSP1BUF = out;
+    while (!SSP1STATbits.BF);           // Wait for the byte to finish
+    return SSP1BUF;                     // Reading clears BF
+}
+
+// Wait for SO to go low (CHIP_RDYn) with CSn already low. Returns 0 on timeout.
+static uint8_t radio_wait_ready(void) {
+    for (uint16_t i = 0; i < 1000; i++) {   // 1000 x 10 us = 10 ms
+        if (RADIO_SO == 0) {
+            return 1;
+        }
+        __delay_us(10);
+    }
+    return 0;
+}
+
+// Manual reset, CC1101 datasheet Section 19.1.2. Returns 0 if the chip never
+// signals ready. The datasheet also asks for SCLK = 1 during the CSn strobe; that
+// only matters if pin control mode (MCSM0.PIN_CTRL_EN) is enabled, which it is not
+// after power-on and is never set by this code, so SCLK is left at its idle low.
+static uint8_t radio_reset(void) {
+    RADIO_CS = 0;                       // Strobe CSn low/high
+    __delay_us(10);
+    RADIO_CS = 1;
+    __delay_us(50);                     // Hold high for at least 40 us
+
+    RADIO_CS = 0;
+    if (!radio_wait_ready()) {          // Crystal running, chip ready
+        RADIO_CS = 1;
+        return 0;
+    }
+    spi_xfer(CC1101_SRES);
+    uint8_t ok = radio_wait_ready();    // SO goes low again when reset is complete
+    RADIO_CS = 1;
+    return ok;
+}
+
+// Read one status register (0x30-0x3D). These need the burst bit set, otherwise
+// the same address is a command strobe.
+static uint8_t radio_read_status(uint8_t addr) {
+    RADIO_CS = 0;
+    radio_wait_ready();
+    spi_xfer(addr | CC1101_READ | CC1101_BURST);
+    uint8_t v = spi_xfer(0x00);
+    RADIO_CS = 1;
+    return v;
+}
+
+static void radio_check(void) {
+    uart_puts("\r\nCC1101: ");
+    if (!radio_reset()) {
+        uart_puts("no response (SO did not go low)\r\n");
+        return;
+    }
+    uint8_t partnum = radio_read_status(CC1101_PARTNUM);
+    uint8_t version = radio_read_status(CC1101_VERSION);
+
+    uart_puts("PARTNUM ");
+    uart_puthex(partnum);
+    uart_puts(" VERSION ");
+    uart_puthex(version);
+
+    // PARTNUM is 0x00 on the CC1101, which a stuck-low MISO would also give, so
+    // VERSION is what proves the link: 0x00 or 0xFF means MISO is stuck.
+    if (partnum == 0x00 && version != 0x00 && version != 0xFF) {
+        uart_puts(" OK\r\n");
+    } else {
+        uart_puts(" unexpected\r\n");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CC1101 register access and configuration
+// ---------------------------------------------------------------------------
+
+// Configuration registers
+#define CC1101_IOCFG2       0x00
+#define CC1101_IOCFG0       0x02
+#define CC1101_PKTLEN       0x06
+#define CC1101_PKTCTRL0     0x08
+#define CC1101_FSCTRL1      0x0B
+#define CC1101_FREQ2        0x0D
+#define CC1101_FREQ1        0x0E
+#define CC1101_FREQ0        0x0F
+#define CC1101_MDMCFG4      0x10
+#define CC1101_MDMCFG3      0x11
+#define CC1101_MDMCFG2      0x12
+#define CC1101_DEVIATN      0x15
+#define CC1101_MCSM0        0x18
+#define CC1101_FOCCFG       0x19
+#define CC1101_BSCFG        0x1A
+#define CC1101_AGCCTRL2     0x1B
+#define CC1101_AGCCTRL1     0x1C
+#define CC1101_AGCCTRL0     0x1D
+#define CC1101_WORCTRL      0x20
+#define CC1101_FREND1       0x21
+#define CC1101_FREND0       0x22
+#define CC1101_FSCAL3       0x23
+#define CC1101_FSCAL2       0x24
+#define CC1101_FSCAL1       0x25
+#define CC1101_FSCAL0       0x26
+#define CC1101_TEST0        0x2E
+
+// Command strobes
+#define CC1101_STX          0x35
+#define CC1101_SIDLE        0x36
+#define CC1101_SFTX         0x3B
+#define CC1101_SNOP         0x3D
+
+// Multi-byte registers
+#define CC1101_PATABLE      0x3E
+#define CC1101_TXFIFO       0x3F
+
+// Chip status byte STATE[2:0] (bits 6:4), datasheet Table 23
+#define STATE_MASK          0x70
+#define STATE_IDLE          0x00
+#define STATE_TX            0x20
+#define STATE_TXFIFO_UFLOW  0x70
+
+static void radio_write_reg(uint8_t addr, uint8_t value) {
+    RADIO_CS = 0;
+    radio_wait_ready();
+    spi_xfer(addr);
+    spi_xfer(value);
+    RADIO_CS = 1;
+}
+
+static uint8_t radio_read_reg(uint8_t addr) {
+    RADIO_CS = 0;
+    radio_wait_ready();
+    spi_xfer(addr | CC1101_READ);
+    uint8_t v = spi_xfer(0x00);
+    RADIO_CS = 1;
+    return v;
+}
+
+// Send a command strobe; returns the chip status byte.
+static uint8_t radio_strobe(uint8_t cmd) {
+    RADIO_CS = 0;
+    radio_wait_ready();
+    uint8_t status = spi_xfer(cmd);
+    RADIO_CS = 1;
+    return status;
+}
+
+// 433.92 MHz, GFSK, 250 kBaud, 127 kHz deviation, 541 kHz RX filter.
+// Values from TI SmartRF Studio 7 (v2.31) preset "Data rate: 250 kBaud, Dev.: 127 kHz,
+// Mod.: GFSK, RX BW: 540 kHz, Optimized for sensitivity" (cc1101/settings/ts_setting16.xml),
+// with the changes marked. That preset is for 868 MHz; the frequency, TEST0 and packet
+// settings are adjusted here. Registers not listed stay at their post-SRES defaults.
+static const uint8_t radio_config[][2] = {
+    { CC1101_IOCFG2,   0x06 },  // Changed: GDO2 asserts on sync word, deasserts at end of packet
+    { CC1101_IOCFG0,   0x2E },  // GDO0 high-Z (not connected); stops the default clock output
+    { CC1101_PKTLEN,   0x3D },  // Changed: max 61-byte payload (fits FIFO with length + 2 status bytes)
+    { CC1101_PKTCTRL0, 0x05 },  // Changed: variable length (first byte), CRC on, no whitening
+    { CC1101_FSCTRL1,  0x0C },  // IF = 26 MHz / 1024 * 12 = 304.7 kHz
+    { CC1101_FREQ2,    0x10 },  // Changed: FREQ = 0x10B071 -> 433.9198 MHz
+    { CC1101_FREQ1,    0xB0 },
+    { CC1101_FREQ0,    0x71 },
+    { CC1101_MDMCFG4,  0x2D },  // RX BW = 26 MHz / (8 * (4 + 2)) = 541.7 kHz; DRATE_E = 13
+    { CC1101_MDMCFG3,  0x3B },  // DRATE_M = 59 -> 249.94 kBaud
+    { CC1101_MDMCFG2,  0x13 },  // GFSK, 30/32 sync bits, DC filter on
+    { CC1101_DEVIATN,  0x62 },  // Deviation = 126.95 kHz
+    { CC1101_MCSM0,    0x18 },  // Calibrate on IDLE -> RX/TX
+    { CC1101_FOCCFG,   0x1D },
+    { CC1101_BSCFG,    0x1C },
+    { CC1101_AGCCTRL2, 0xC7 },
+    { CC1101_AGCCTRL1, 0x00 },
+    { CC1101_AGCCTRL0, 0xB0 },
+    { CC1101_WORCTRL,  0xFB },
+    { CC1101_FREND1,   0xB6 },
+    { CC1101_FREND0,   0x10 },  // PA_POWER = 0: PATABLE[0] only, no ramping
+    { CC1101_FSCAL3,   0xEA },
+    { CC1101_FSCAL2,   0x2A },
+    { CC1101_FSCAL1,   0x00 },
+    { CC1101_FSCAL0,   0x1F },
+    { CC1101_TEST0,    0x0B },  // Changed from 0x09: VCO selection calibration enabled (reset value)
+};
+
+#define PA_0DBM  0x60               // SmartRF Studio PA table, CC1101 434 MHz, 0 dBm (non-ramping)
+
+// Write the configuration and read it back. Returns the number of mismatches.
+static uint8_t radio_configure(void) {
+    uint8_t errors = 0;
+    for (uint8_t i = 0; i < sizeof radio_config / sizeof radio_config[0]; i++) {
+        radio_write_reg(radio_config[i][0], radio_config[i][1]);
+    }
+    radio_write_reg(CC1101_PATABLE, PA_0DBM);   // Single write goes to PATABLE[0]
+
+    for (uint8_t i = 0; i < sizeof radio_config / sizeof radio_config[0]; i++) {
+        uint8_t v = radio_read_reg(radio_config[i][0]);
+        if (v != radio_config[i][1]) {
+            errors++;
+            uart_puts("  reg ");
+            uart_puthex(radio_config[i][0]);
+            uart_puts(" wrote ");
+            uart_puthex(radio_config[i][1]);
+            uart_puts(" read ");
+            uart_puthex(v);
+            uart_puts("\r\n");
+        }
+    }
+    return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Test transmission with long preamble
+// ---------------------------------------------------------------------------
+
+// Preamble must outlast the receiver's WOR polling interval (t_EVENT0) plus its
+// wake-up and settling time. 300 ms = 1.2 x a 250 ms poll interval.
+#define PREAMBLE_MS 300
+
+// Wait for the chip status STATE to equal 'state'. Returns 0 on timeout (~10 ms).
+static uint8_t radio_wait_state(uint8_t state) {
+    for (uint16_t i = 0; i < 1000; i++) {
+        uint8_t s = radio_strobe(CC1101_SNOP) & STATE_MASK;
+        if (s == state) {
+            return 1;
+        }
+        if (s == STATE_TXFIFO_UFLOW) {
+            return 0;
+        }
+        __delay_us(10);
+    }
+    return 0;
+}
+
+static void radio_send_test(void) {
+    static const uint8_t payload[] = { 'G', 'D' };
+
+    radio_strobe(CC1101_SIDLE);
+    radio_wait_state(STATE_IDLE);
+    radio_strobe(CC1101_SFTX);              // Empty TX FIFO
+
+    // STX with the FIFO empty: after calibration the modulator sends preamble
+    // and keeps sending it until the first byte is written to the TX FIFO
+    // (datasheet Section 15.2).
+    radio_strobe(CC1101_STX);
+    if (!radio_wait_state(STATE_TX)) {
+        uart_puts("TX: did not enter TX\r\n");
+        radio_strobe(CC1101_SIDLE);
+        return;
+    }
+
+    // PLL lock check: FSCAL1 = 0x3F after calibration means no lock (Section 22.1).
+    if (radio_read_reg(CC1101_FSCAL1) == 0x3F) {
+        uart_puts("TX: PLL not locked\r\n");
+        radio_strobe(CC1101_SIDLE);
+        return;
+    }
+
+    __delay_ms(PREAMBLE_MS);
+
+    // Length byte then payload in one burst. Writing the first byte ends the
+    // preamble; the remaining bytes follow well before the 4 sync bytes are sent.
+    RADIO_CS = 0;
+    radio_wait_ready();
+    spi_xfer(CC1101_TXFIFO | CC1101_BURST);
+    spi_xfer(sizeof payload);
+    for (uint8_t i = 0; i < sizeof payload; i++) {
+        spi_xfer(payload[i]);
+    }
+    RADIO_CS = 1;
+
+    // MCSM1.TXOFF_MODE = IDLE (default), so the chip returns to IDLE after the packet.
+    if (radio_wait_state(STATE_IDLE)) {
+        uart_puts("TX: sent GD\r\n");
+    } else {
+        uart_puts("TX: did not finish (underflow or timeout)\r\n");
+        radio_strobe(CC1101_SIDLE);
+        radio_strobe(CC1101_SFTX);
+    }
+}
+
+#define DEBOUNCE_MS 30                 // Input must be stable this long to be accepted
+
+void main(void) {
+    clock_init();
+    pins_init();
+    uart_init();
+    spi_init();
+
+    radio_check();
+
+    uart_puts("CC1101 config: ");
+    uint8_t errors = radio_configure();
+    if (errors == 0) {
+        uart_puts("OK\r\n");
+    } else {
+        uart_puts("readback errors\r\n");
+    }
+
+    uint8_t pressed = 0;                // Debounced state, 1 = pressed
+    uint8_t count = 0;                  // ms the raw input has differed from the debounced state
+
+    while (1) {
+        __delay_ms(1);
+
+        uint8_t raw = (BUTTON == 0);    // Active low
+        if (raw == pressed) {
+            count = 0;                  // Agrees with debounced state; any bounce restarts the count
+        } else if (++count >= DEBOUNCE_MS) {
+            count = 0;
+            pressed = raw;
+            if (pressed) {
+                radio_send_test();      // Once per press, on the debounced press edge
+            }
+        }
+    }
+}

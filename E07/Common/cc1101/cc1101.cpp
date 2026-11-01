@@ -149,9 +149,10 @@ void CC1101::initialise() {
   writeRegister(IOCFG0, 0x01);   // GDO0 = packet received.
   writeRegister(SYNC1, 'G');
   writeRegister(SYNC0, 'D');
-  writeRegister(PKTLEN, 2);
-  writeRegister(PKTCTRL1, 0b10000100);  // PQT = 4, append status, no address.
+  writeRegister(PKTLEN, 4);   // Address byte + 3 data bytes.
+  writeRegister(PKTCTRL1, 0b10000101);  // PQT = 4, append status, address check.
   writeRegister(PKTCTRL0, 0b00000100);  // No data whitening, CRC, fixed packet length.
+  writeRegister(ADDR, 0x01);
   writeRegister(FSCTRL1, 0x06);
 
   writeRegister(FREQ2, 0x10);
@@ -237,14 +238,15 @@ void CC1101::flushRx() {
   writeStrobe(SFRX);
 }
 
-void CC1101::loadTx(const void *pdata, uint8_t length) {
+void CC1101::loadTx(const void *pdata, uint8_t length, uint8_t address) {
     int n;
     uint8_t packet[64];
 
     memset(packet, 0, 64);
-    memcpy(packet, pdata, length);
+    packet[0] = address;
+    memcpy(packet + 1, pdata, length);
 
-    writeBurst(FIFO, packet, length);
+    writeBurst(FIFO, packet, length + 1);
 }
 
 void CC1101::fetchRx (void *pdata, uint8_t length) {

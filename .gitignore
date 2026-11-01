@@ -1,3 +1,7 @@
 .*
 !.gitignore
 *.mp4
+/E07/Receiver/Receiver.X/dist/
+/E07/Receiver/Receiver.X/build/
+/E07/Radio test.X/dist/
+/E07/Radio test.X/build/

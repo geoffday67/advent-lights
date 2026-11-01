@@ -1,0 +1,15 @@
+{
+	"folders": [
+    {
+      "path": "Transmitter"
+    },
+    {
+      "path": "Transmitter-pico"
+    },
+    {
+      "name": "ESP32_DOIT",
+      "path": "../../Alarm V3/ESP32_DOIT"
+    }
+  ],
+  "settings": {}
+}

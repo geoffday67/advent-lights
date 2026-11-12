@@ -152,7 +152,13 @@ static const uint8_t radio_config[][2] = {
     { CC1101_TEST0,    0x0B },  // Changed from 0x09: VCO selection calibration enabled (reset value)
 };
 
-#define PA_0DBM  0x60               // SmartRF Studio PA table, CC1101 434 MHz, 0 dBm (non-ramping)
+// SmartRF Studio PA table, CC1101 434 MHz (non-ramping): 0x60 = 0 dBm, 0xC0 = +10 dBm.
+// The transmitter runs at +10 dBm for link margin; the receiver never transmits.
+#if defined(ROLE_TX)
+#define PA_SETTING  0xC0            // +10 dBm
+#else
+#define PA_SETTING  0x60            // 0 dBm
+#endif
 
 // Write the configuration and read it back. Returns the number of mismatches.
 uint8_t radio_configure(void) {
@@ -160,7 +166,7 @@ uint8_t radio_configure(void) {
     for (uint8_t i = 0; i < sizeof radio_config / sizeof radio_config[0]; i++) {
         radio_write_reg(radio_config[i][0], radio_config[i][1]);
     }
-    radio_write_reg(CC1101_PATABLE, PA_0DBM);   // Single write goes to PATABLE[0]
+    radio_write_reg(CC1101_PATABLE, PA_SETTING);   // Single write goes to PATABLE[0]
 
     for (uint8_t i = 0; i < sizeof radio_config / sizeof radio_config[0]; i++) {
         uint8_t v = radio_read_reg(radio_config[i][0]);

@@ -4,12 +4,28 @@
  *
  * The CC1101 polls on its own (WOR) while the PIC sleeps. GDO2 (IOCFG2 = 0x06)
  * goes high on sync word and low at the end of the packet; that falling edge on
- * RC3 wakes the PIC through interrupt-on-change.
+ * the GDO2 pin (RA5 on the receiver PCB) wakes the PIC through interrupt-on-change.
  */
 
 #include "board.h"
 #include "uart.h"
 #include "radio.h"
+
+// Tree ID: one program-flash word at TREE_ID_ADDR (the last word of the 8K-word
+// PIC16F15225 flash). patch_id.py writes RETLW <id> there in a copy of the built
+// hex file. The placeholder below reserves the word in MPLAB builds; 0xFF = not set.
+#define TREE_ID_ADDR    0x1FFF
+#define TREE_ID_UNSET   0xFF
+const uint8_t tree_id_placeholder __at(TREE_ID_ADDR) = TREE_ID_UNSET;
+
+// Read the low byte of the ID word through the NVM controller (datasheet Example 15-1),
+// so the compiler cannot replace the read with the placeholder's build-time value.
+static uint8_t tree_id_read(void) {
+    NVMCON1bits.NVMREGS = 0;            // Program flash memory
+    NVMADR = TREE_ID_ADDR;
+    NVMCON1bits.RD = 1;
+    return NVMDATL;
+}
 
 // WOR poll interval. t_EVENT0 = 750 / f_xosc * EVENT0 * 2^(5 * WOR_RES)
 // (AN047 Equation 1). With WOR_RES = 0: 750 / 26 MHz * 8667 = 250.0 ms.
@@ -41,7 +57,7 @@
 #define DEBUG_GDO2_CFG 0
 
 // Debug: at startup, with the radio in IDLE (no WOR), check the GDO2 pin and the
-// RC oscillator directly by polling RC3, and print the RC calibration results.
+// RC oscillator directly by polling GDO2, and print the RC calibration results.
 #define DEBUG_RC_CHECK 0
 
 // Receiver-only settings, written on top of the shared configuration.
@@ -95,7 +111,7 @@ static void rx_arm(void) {
     radio_strobe(CC1101_SIDLE);
     radio_wait_state(STATE_IDLE);
     radio_strobe(CC1101_SFRX);
-    IOCCFbits.IOCCF3 = 0;
+    GDO2_IOC_FLAG = 0;
 #if RX_CONTINUOUS
     radio_strobe(CC1101_SRX);
 #else
@@ -115,18 +131,19 @@ static uint8_t rx_bytes(void) {
     return a;
 }
 
-static void rx_read_packet(void) {
+// Read and log one packet. Returns 1 if a complete packet with a good CRC was read.
+static uint8_t rx_read_packet(void) {
     static uint8_t buf[64];
 
     uint8_t n = rx_bytes();
     if (n & 0x80) {
         uart_puts("RX: FIFO overflow\r\n");
-        return;
+        return 0;
     }
     n &= 0x7F;
     if (n == 0) {
         uart_puts("RX: wake with empty FIFO\r\n");
-        return;
+        return 0;
     }
 
     radio_read_burst(CC1101_RXFIFO, buf, n);
@@ -139,7 +156,7 @@ static void rx_read_packet(void) {
         uart_puts(" but ");
         uart_putdec(n);
         uart_puts(" bytes in FIFO\r\n");
-        return;
+        return 0;
     }
     uint8_t rssi_raw = buf[len + 1];
     uint8_t lqi_crc  = buf[len + 2];
@@ -159,6 +176,7 @@ static void rx_read_packet(void) {
     uart_puts(" dBm LQI ");
     uart_putdec(lqi_crc & 0x7F);
     uart_puts((lqi_crc & 0x80) ? " CRC OK\r\n" : " CRC FAIL\r\n");
+    return (lqi_crc & 0x80) ? 1 : 0;
 }
 
 #if DEBUG_RC_CHECK
@@ -215,6 +233,15 @@ void main(void) {
     uart_init();
     spi_init();
 
+    uint8_t tree_id = tree_id_read();
+    uart_puts("Tree ID: ");
+    if (tree_id == TREE_ID_UNSET) {
+        uart_puts("not set\r\n");
+    } else {
+        uart_putdec(tree_id);
+        uart_puts("\r\n");
+    }
+
     radio_check();
 
     uart_puts("CC1101 config: ");
@@ -239,11 +266,11 @@ void main(void) {
         uart_puts("RX: calibration did not finish\r\n");
     }
 
-    // GDO2 falling edge on RC3 = end of packet. With GIE clear there is no ISR:
+    // GDO2 falling edge = end of packet. With GIE clear there is no ISR:
     // the interrupt just wakes the PIC from SLEEP and execution carries on.
-    IOCCPbits.IOCCP3 = 0;
-    IOCCNbits.IOCCN3 = 1;
-    IOCCFbits.IOCCF3 = 0;
+    GDO2_IOC_POS = 0;
+    GDO2_IOC_NEG = 1;
+    GDO2_IOC_FLAG = 0;
     PIE0bits.IOCIE = 1;
 
     uart_puts(RX_CONTINUOUS ? "RX: listening (continuous)\r\n" : "RX: listening (WOR)\r\n");
@@ -254,9 +281,11 @@ void main(void) {
         SLEEP();
         NOP();
 
-        if (IOCCFbits.IOCCF3) {
-            IOCCFbits.IOCCF3 = 0;
-            rx_read_packet();
+        if (GDO2_IOC_FLAG) {
+            GDO2_IOC_FLAG = 0;
+            if (rx_read_packet()) {
+                LED = !LED;             // Toggle the LED on every good packet; it stays as set while asleep
+            }
             rx_arm();
         }
     }

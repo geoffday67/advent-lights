@@ -47,16 +47,17 @@
  */
 
 /*
- * RA5 - CS.
- * RA4 - CLK.
- * RC5 - MISO.
- * RC4 - MOSI.
- * RC3 - GDO2.
- * RC2 - Button to ground.
- * RC1 - UART Tx.
- * RC0 - Unused.
- * RA2 - Unused.
- * 
+ * Receiver PCB (ROLE_RX)            Stripboard transmitter (ROLE_TX)
+ *   RA5 - GDO2 (IOC wake)             RA5 - CS
+ *   RA4 - MISO                        RA4 - SCK
+ *   RC5 - MOSI                        RC5 - MISO
+ *   RC4 - SCK                         RC4 - MOSI
+ *   RC3 - CS                          RC3 - GDO2
+ *   RC2 - LED (high = on)             RC2 - Button to ground
+ *   RC1 - UART TX (TP1)               RC1 - UART TX
+ *   RC0 - Unused                      RC0 - Unused
+ *   RA2 - Unused                      RA2 - Unused
+ *
  * Unused pins are driven low as outputs to avoid floating-input current in sleep.
  */
 
@@ -74,6 +75,27 @@ void pins_init(void) {
     ANSELA = 0b00000011;                // RA0, RA1 analog; RA2-RA5 digital
     ANSELC = 0b00000000;                // All PORTC digital
 
+#if defined(ROLE_RX)
+    // Output latches before enabling drivers, so nothing glitches.
+    LATA   = 0b00000000;                // RA2 low
+    LATC   = 0b00001010;                // RC3 (CS) high = radio deselected; RC1 (UART TX) high = idle;
+                                        // RC4 (SCK) low = idle for CKP=0; RC5 (MOSI), RC2 (LED), RC0 low
+
+    // Directions (1 = input).
+    TRISA  = 0b00111011;                // RA0, RA1 (ICSP), RA3 (MCLR), RA4 (MISO), RA5 (GDO2) inputs; RA2 output
+    TRISC  = 0b00000000;                // All PORTC outputs
+
+    // Weak pull-ups.
+    WPUA   = 0b00010000;                // RA4 MISO (CC1101 SO is high-Z while CSn is high)
+    WPUC   = 0b00000000;
+
+    // Peripheral Pin Select. PPSLOCKED is clear after reset, so no unlock is needed.
+    RC4PPS     = 0x07;                  // RC4 <- SCK1 output
+    SSP1CLKPPS = 0x14;                  // SCK1 input <- RC4 (must match the output pin in host mode)
+    RC5PPS     = 0x08;                  // RC5 <- SDO1 (MOSI)
+    SSP1DATPPS = 0x04;                  // SDI1 (MISO) <- RA4
+    RC1PPS     = 0x05;                  // RC1 <- TX1
+#else
     // Output latches before enabling drivers, so nothing glitches.
     LATA   = 0b00100000;                // RA5 (CS) high = radio deselected; RA4 (SCK) low = idle for CKP=0; RA2 low
     LATC   = 0b00000010;                // RC1 (UART TX) high = idle; RC4 (MOSI) low; RC0 low
@@ -92,6 +114,7 @@ void pins_init(void) {
     RC4PPS     = 0x08;                  // RC4 <- SDO1 (MOSI)
     SSP1DATPPS = 0x15;                  // SDI1 (MISO) <- RC5
     RC1PPS     = 0x05;                  // RC1 <- TX1
+#endif
 
     // Lock PPS. GIE is still clear here, as the sequence requires.
     // With PPS1WAY = ON this lasts until the next reset.
@@ -99,4 +122,3 @@ void pins_init(void) {
     PPSLOCK = 0xAA;
     PPSLOCKbits.PPSLOCKED = 1;
 }
-

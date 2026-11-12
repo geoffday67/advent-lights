@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name "AdventRX")(type "KiCad")(uri "${KIPRJMOD}/AdventRX.pretty")(options "")(descr "Advent receiver footprints"))
+)

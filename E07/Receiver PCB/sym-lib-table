@@ -1,0 +1,3 @@
+(sym_lib_table
+  (lib (name "AdventRX")(type "KiCad")(uri "${KIPRJMOD}/AdventRX.kicad_sym")(options "")(descr "Advent receiver parts"))
+)

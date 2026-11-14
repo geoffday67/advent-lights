@@ -10,6 +10,7 @@
 #include "board.h"
 #include "uart.h"
 #include "radio.h"
+#include "selftest.h"
 
 // Tree ID: one program-flash word at TREE_ID_ADDR (the last word of the 8K-word
 // PIC16F15225 flash). patch_id.py writes RETLW <id> there in a copy of the built
@@ -229,6 +230,7 @@ static void rc_check(void) {
 
 void main(void) {
     clock_init();
+    selftest_pins();                    // Before pins_init(): drives PORTC pins directly
     pins_init();
     uart_init();
     spi_init();
@@ -242,6 +244,7 @@ void main(void) {
         uart_puts("\r\n");
     }
 
+    selftest_run();
     radio_check();
 
     uart_puts("CC1101 config: ");

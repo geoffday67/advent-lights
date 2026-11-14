@@ -27,11 +27,11 @@ CLEAN_SUBPROJECTS=${CLEAN_SUBPROJECTS_${SUBPROJECTS}}
 PROJECTNAME=Radio test.X
 
 # Active Configuration
-DEFAULTCONF=RX
+DEFAULTCONF=MODEM
 CONF=${DEFAULTCONF}
 
 # All Configurations
-ALLCONFS=TX RX 
+ALLCONFS=MODEM RX 
 
 
 # build
@@ -45,14 +45,14 @@ ALLCONFS=TX RX
 
 # clobber
 .clobber-impl: .clobber-pre .depcheck-impl
-	    ${MAKE} SUBPROJECTS=${SUBPROJECTS} CONF=TX clean
+	    ${MAKE} SUBPROJECTS=${SUBPROJECTS} CONF=MODEM clean
 	    ${MAKE} SUBPROJECTS=${SUBPROJECTS} CONF=RX clean
 
 
 
 # all
 .all-impl: .all-pre .depcheck-impl
-	    ${MAKE} SUBPROJECTS=${SUBPROJECTS} CONF=TX build
+	    ${MAKE} SUBPROJECTS=${SUBPROJECTS} CONF=MODEM build
 	    ${MAKE} SUBPROJECTS=${SUBPROJECTS} CONF=RX build
 
 

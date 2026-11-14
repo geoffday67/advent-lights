@@ -6,6 +6,7 @@
                    projectFiles="true">
       <itemPath>board.h</itemPath>
       <itemPath>radio.h</itemPath>
+      <itemPath>selftest.h</itemPath>
       <itemPath>uart.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
@@ -23,13 +24,14 @@
       <itemPath>board.c</itemPath>
       <itemPath>radio.c</itemPath>
       <itemPath>rx_main.c</itemPath>
-      <itemPath>tx_main.c</itemPath>
+      <itemPath>selftest.c</itemPath>
+      <itemPath>modem_main.c</itemPath>
       <itemPath>uart.c</itemPath>
     </logicalFolder>
   </logicalFolder>
   <projectmakefile>Makefile</projectmakefile>
   <confs>
-    <conf name="TX" type="2">
+    <conf name="MODEM" type="2">
       <toolsSet>
         <developmentServer>localhost</developmentServer>
         <targetDevice>PIC16F15225</targetDevice>
@@ -76,7 +78,7 @@
         <property key="call-prologues" value="false"/>
         <property key="default-bitfield-type" value="true"/>
         <property key="default-char-type" value="true"/>
-        <property key="define-macros" value="ROLE_TX"/>
+        <property key="define-macros" value="ROLE_MODEM"/>
         <property key="disable-optimizations" value="true"/>
         <property key="extra-include-directories" value=""/>
         <property key="favor-optimization-for" value="-speed,+space"/>
@@ -328,7 +330,7 @@
         <property key="user-pack-device-support" value=""/>
         <property key="wpo-lto" value="false"/>
       </XC8-config-global>
-      <item path="tx_main.c" ex="true" overriding="false">
+      <item path="modem_main.c" ex="true" overriding="false">
         <HI-TECH-COMP>
         </HI-TECH-COMP>
         <HI-TECH-LINK>

@@ -1,20 +1,25 @@
 /*
- * uart.c - EUSART1 transmit-only debug output.
+ * uart.c - EUSART1: log output on RC1 (TP1); in the MODEM build also command
+ * input on RC2.
  */
 
 #include "board.h"
 #include "uart.h"
 
 void uart_init(void) {
-    // 38400 baud, 8N1, transmit only. Asynchronous, BRGH = 1, BRG16 = 1:
-    // baud = FOSC / (4 * (n + 1)) = 4 MHz / (4 * 26) = 38462 (+0.16 %).
-    // At 4 MHz the next standard rate up, 57600, is +2.12 % (DS Table 24-2),
-    // too close to the limit once HFINTOSC tolerance is added.
+    // 8N1, asynchronous, BRGH = 1, BRG16 = 1: baud = FOSC / (4 * (n + 1)).
+    // RX: 38400 (n = 25, +0.16 %). MODEM: 9600 (n = 103, +0.16 %), a rate the
+    // controller's SoftwareSerial sends reliably. At 4 MHz, 57600 would be +2.12 %
+    // (DS Table 24-2), too close to the limit once HFINTOSC tolerance is added.
     BAUD1CON = 0b00001000;              // BRG16 = 1, SCKP = 0 (TX idles high)
     SP1BRGH  = 0;
-    SP1BRGL  = 25;
+    SP1BRGL  = UART_SPBRG;
     TX1STA   = 0b00100100;              // TXEN = 1, SYNC = 0, BRGH = 1
+#if defined(ROLE_MODEM)
+    RC1STA   = 0b10010000;              // SPEN = 1, CREN = 1 (receiver on)
+#else
     RC1STA   = 0b10000000;              // SPEN = 1 (receiver left disabled)
+#endif
 }
 
 void uart_putc(char c) {
@@ -61,3 +66,38 @@ void uart_putdec(int16_t v) {
 void uart_flush(void) {
     while (!TX1STAbits.TRMT);
 }
+
+#if defined(ROLE_MODEM)
+// Discard anything in the receive FIFO and clear an overrun.
+void uart_rx_flush(void) {
+    if (RC1STAbits.OERR) {
+        RC1STAbits.CREN = 0;            // Clearing CREN clears the overrun
+        RC1STAbits.CREN = 1;
+    }
+    while (PIR1bits.RC1IF) {
+        (void)RC1REG;
+    }
+}
+
+// Wait up to 'ms' for a byte. Returns the byte, or -1 on timeout. Bytes with a
+// framing error are discarded.
+int16_t uart_getc_timeout(uint16_t ms) {
+    for (uint16_t i = 0; i < ms; i++) {
+        for (uint8_t j = 0; j < 100; j++) {     // ~1 ms in 10 us steps
+            if (RC1STAbits.OERR) {
+                RC1STAbits.CREN = 0;
+                RC1STAbits.CREN = 1;
+            }
+            if (PIR1bits.RC1IF) {
+                uint8_t ferr = RC1STAbits.FERR;   // Read FERR before RC1REG
+                uint8_t c = RC1REG;
+                if (!ferr) {
+                    return c;
+                }
+            }
+            __delay_us(10);
+        }
+    }
+    return -1;
+}
+#endif

@@ -12,6 +12,7 @@
 
 // Configuration registers
 #define CC1101_IOCFG2       0x00
+#define CC1101_IOCFG1       0x01
 #define CC1101_IOCFG0       0x02
 #define CC1101_PKTLEN       0x06
 #define CC1101_PKTCTRL1     0x07
@@ -49,6 +50,7 @@
 #define CC1101_STX          0x35
 #define CC1101_SIDLE        0x36
 #define CC1101_SWOR         0x38
+#define CC1101_SPWD         0x39        // Enter SLEEP when CSn goes high
 #define CC1101_SFRX         0x3A
 #define CC1101_SFTX         0x3B
 #define CC1101_SWORRST      0x3C
@@ -57,6 +59,7 @@
 // Status registers (read with the burst bit set)
 #define CC1101_PARTNUM      0x30
 #define CC1101_VERSION      0x31
+#define CC1101_MARCSTATE    0x35        // Main radio state machine state (datasheet Section 29.3)
 #define CC1101_RXBYTES      0x3B        // Bit 7 = RX FIFO overflow, bits 6:0 = byte count
 
 // Multi-byte registers

@@ -153,8 +153,8 @@ static const uint8_t radio_config[][2] = {
 };
 
 // SmartRF Studio PA table, CC1101 434 MHz (non-ramping): 0x60 = 0 dBm, 0xC0 = +10 dBm.
-// The transmitter runs at +10 dBm for link margin; the receiver never transmits.
-#if defined(ROLE_TX)
+// The modem transmits at +10 dBm for link margin; the receiver never transmits.
+#if defined(ROLE_MODEM)
 #define PA_SETTING  0xC0            // +10 dBm
 #else
 #define PA_SETTING  0x60            // 0 dBm

@@ -2,20 +2,24 @@
  * modem.cpp - Command link from the Pro Mini to the radio modem PCB. See modem.h.
  */
 #include "modem.h"
-#include <SoftwareSerial.h>
+#include <AltSoftSerial.h>
 
-static SoftwareSerial modem_port(MODEM_RX_PIN, MODEM_TX_PIN);
+// AltSoftSerial times each bit with Timer1 output compare instead of a delay loop with
+// interrupts off, so the encoder interrupts keep running while a message goes out.
+// On the ATmega328 its pins are fixed: TX = D9, RX = D8 (input capture, unused here).
+// Timer1 is taken, so D10 can't do PWM.
+static AltSoftSerial modem_port;
 static uint32_t last_send_ms;
 static bool sent_before;
 
 void modem_begin(void) {
-    modem_port.begin(MODEM_BAUD);   // TX pin set high (idle) before it becomes an output
-    modem_port.stopListening();     // Receive is never used: turn off the RX pin-change interrupt
+    modem_port.begin(MODEM_BAUD);
+    pinMode(MODEM_RX_PIN, INPUT_PULLUP);    // RX unused and unconnected: hold it idle-high
 }
 
 // Send one message. Returns false if the length is out of range. Waits if the
-// previous message was less than MODEM_MIN_GAP_MS ago. Interrupts are off during
-// each byte (about 1.04ms at 9600), as in any SoftwareSerial write.
+// previous message was less than MODEM_MIN_GAP_MS ago. Bytes are queued and sent by
+// Timer1 interrupts; the function returns once they are all out (flush).
 bool modem_send(const uint8_t *payload, uint8_t len) {
     if (len < 1 || len > MODEM_MAX_PAYLOAD) {
         return false;
@@ -37,6 +41,7 @@ bool modem_send(const uint8_t *payload, uint8_t len) {
         sum += payload[i];
     }
     modem_port.write(sum);
+    modem_port.flush();                 // Wait until the last byte has gone
 
     last_send_ms = millis();
     sent_before = true;

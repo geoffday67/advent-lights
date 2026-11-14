@@ -1,0 +1,152 @@
+/*
+ * encoder.cpp - Rotary encoder with push switch. See encoder.h.
+ *
+ * Both encoder pins interrupt on every change. Each interrupt reads A and B together
+ * from PIND and looks up the transition from the previous state: +1 or -1 for a valid
+ * single-bit change, 0 for no change or a two-bit jump (a transition missed, e.g. while
+ * interrupts are held off).
+ *
+ * Detents are counted at the rest state, not by dividing a running total. The
+ * transitions since the encoder last left a rest state are summed; when it arrives at
+ * a rest state the sum decides: at least half a detent forward = +1, at least half
+ * back = -1, otherwise 0 (bounce, or a partial turn that came back). The sum then
+ * restarts, so a missed transition can't leave the count out of step with the clicks.
+ */
+#include "encoder.h"
+
+#define REST_AB         0x03        // A = B = 1: contacts open at a detent
+#define HALF_DETENT     (ENCODER_STEPS_PER_DETENT / 2)
+
+static volatile uint16_t raw;       // All transitions, wraps; for testing only
+static volatile uint8_t  prev_ab;
+static volatile int8_t   since_rest;
+static volatile int8_t   detents;   // Not yet taken by encoder_take()
+
+// Index = previous AB << 2 | new AB, with A in bit 0 and B in bit 1.
+static const int8_t transition[16] = {
+     0, -1, +1,  0,
+    +1,  0,  0, -1,
+    -1,  0,  0, +1,
+     0, +1, -1,  0,
+};
+
+static inline bool is_rest(uint8_t ab) {
+#if ENCODER_STEPS_PER_DETENT == 2
+    return ab == REST_AB || ab == 0x00;
+#else
+    return ab == REST_AB;
+#endif
+}
+
+static void encoder_isr(void) {
+    uint8_t ab = (PIND >> 2) & 0x03;    // D2 = PD2 = A, D3 = PD3 = B
+    int8_t t = transition[(prev_ab << 2) | ab];
+    prev_ab = ab;
+    raw += (uint16_t)t;
+    since_rest += t;
+
+    if (is_rest(ab)) {
+        if (since_rest >= HALF_DETENT) {
+            detents++;
+        } else if (since_rest <= -HALF_DETENT) {
+            detents--;
+        }
+        since_rest = 0;
+    }
+}
+
+void encoder_begin(void) {
+    pinMode(ENCODER_A_PIN, INPUT_PULLUP);
+    pinMode(ENCODER_B_PIN, INPUT_PULLUP);
+    pinMode(ENCODER_SW_PIN, INPUT_PULLUP);
+    prev_ab = (PIND >> 2) & 0x03;
+    attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN), encoder_isr, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_B_PIN), encoder_isr, CHANGE);
+}
+
+uint16_t encoder_raw(void) {
+    noInterrupts();
+    uint16_t r = raw;
+    interrupts();
+    return r;
+}
+
+uint8_t encoder_ab(void) {
+    return (PIND >> 2) & 0x03;
+}
+
+int8_t encoder_take(void) {
+    noInterrupts();
+    int8_t d = detents;
+    detents = 0;
+    interrupts();
+    return d;
+}
+
+void encoder_reset(void) {
+    noInterrupts();
+    prev_ab = (PIND >> 2) & 0x03;
+    since_rest = 0;
+    detents = 0;
+    interrupts();
+}
+
+// ---------------------------------------------------------------------------
+// Push switch: debounced, short and long presses
+// ---------------------------------------------------------------------------
+
+static bool     sw_stable_closed;
+static bool     sw_last_reading;
+static bool     sw_used;            // Current press already reported (long) or suppressed
+static uint32_t sw_changed_ms;
+static uint32_t sw_pressed_ms;
+
+bool button_is_down(void) {
+    return digitalRead(ENCODER_SW_PIN) == LOW;
+}
+
+ButtonEvent button_event(void) {
+    uint32_t now = millis();
+    bool closed = button_is_down();
+
+    if (closed != sw_last_reading) {
+        sw_last_reading = closed;
+        sw_changed_ms = now;
+    }
+
+    if (closed != sw_stable_closed && now - sw_changed_ms >= BUTTON_DEBOUNCE_MS) {
+        sw_stable_closed = closed;
+        if (closed) {
+            sw_pressed_ms = now;
+            sw_used = false;
+        } else if (!sw_used) {
+            return BUTTON_SHORT;
+        }
+    }
+
+    if (sw_stable_closed && !sw_used && now - sw_pressed_ms >= BUTTON_LONG_MS) {
+        sw_used = true;
+        return BUTTON_LONG;
+    }
+    return BUTTON_NONE;
+}
+
+// Mark the switch as pressed-and-used, so neither its release nor a long hold
+// produces an event. Used after the press that woke the controller.
+void button_suppress(void) {
+    sw_stable_closed = true;
+    sw_last_reading = true;
+    sw_used = true;
+    sw_changed_ms = millis();
+}
+
+void button_wait_release(void) {
+    uint32_t open_since = millis();
+    while (millis() - open_since < BUTTON_DEBOUNCE_MS) {
+        if (button_is_down()) {
+            open_since = millis();
+        }
+    }
+    sw_stable_closed = false;
+    sw_last_reading = false;
+}

@@ -10,7 +10,7 @@ Usage:
     python3 patch_id.py ID [-i INPUT.hex] [-o OUTPUT.hex]
 
 Defaults:
-    INPUT   dist/RX/production/Radio_test.X.production.hex (next to this script)
+    INPUT   dist/RX/production/Radio.X.production.hex (next to this script)
     OUTPUT  tree_hex/tree_NN.hex (next to this script)
 """
 import argparse
@@ -20,7 +20,7 @@ import sys
 TREE_ID_ADDR = 0x1FFF           # Word address; must match rx_main.c
 RETLW = 0x34                    # High byte of a RETLW instruction (14-bit 0x34kk)
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_IN = os.path.join(HERE, "dist", "RX", "production", "Radio_test.X.production.hex")
+DEFAULT_IN = os.path.join(HERE, "dist", "RX", "production", "Radio.X.production.hex")
 
 
 def checksum(data):

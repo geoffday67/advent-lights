@@ -17,6 +17,12 @@ void modem_begin(void) {
     pinMode(MODEM_RX_PIN, INPUT_PULLUP);    // RX unused and unconnected: hold it idle-high
 }
 
+// True if a message sent now would go straight out, without modem_send() waiting
+// for MODEM_MIN_GAP_MS since the previous one.
+bool modem_ready(void) {
+    return !sent_before || millis() - last_send_ms >= MODEM_MIN_GAP_MS;
+}
+
 // Send one message. Returns false if the length is out of range. Waits if the
 // previous message was less than MODEM_MIN_GAP_MS ago. Bytes are queued and sent by
 // Timer1 interrupts; the function returns once they are all out (flush).

@@ -1,6 +1,12 @@
 /*
- * rx_main.c - Receiver test: wake-on-radio, log each packet's contents and RSSI.
+ * rx_main.c - Tree receiver: wake-on-radio, decode the controller's day command and
+ * set the LED. Each packet's contents and RSSI are logged on TP1.
  * Built in the RX configuration only.
+ *
+ * Command (packet payload): 'D', day. The LED is on when day >= this tree's ID, so
+ * on day n trees 1..n are lit, like an advent calendar. Day 0 turns every tree off.
+ * Other payloads are logged and ignored. After power-up the LED stays off until the
+ * first command arrives.
  *
  * The CC1101 polls on its own (WOR) while the PIC sleeps. GDO2 (IOCFG2 = 0x06)
  * goes high on sync word and low at the end of the packet; that falling edge on
@@ -132,9 +138,15 @@ static uint8_t rx_bytes(void) {
     return a;
 }
 
-// Read and log one packet. Returns 1 if a complete packet with a good CRC was read.
+#define CMD_DAY         'D'     // Payload: CMD_DAY, day (0 = all off)
+
+// Packet buffer: rx_buf[0] = length, rx_buf[1..length] = payload, then RSSI, LQI/CRC.
+static uint8_t rx_buf[64];
+
+// Read and log one packet. Returns the payload length if a complete packet with a
+// good CRC was read (payload at rx_buf + 1), otherwise 0.
 static uint8_t rx_read_packet(void) {
-    static uint8_t buf[64];
+    uint8_t *buf = rx_buf;
 
     uint8_t n = rx_bytes();
     if (n & 0x80) {
@@ -177,7 +189,21 @@ static uint8_t rx_read_packet(void) {
     uart_puts(" dBm LQI ");
     uart_putdec(lqi_crc & 0x7F);
     uart_puts((lqi_crc & 0x80) ? " CRC OK\r\n" : " CRC FAIL\r\n");
-    return (lqi_crc & 0x80) ? 1 : 0;
+    return (lqi_crc & 0x80) ? len : 0;
+}
+
+// Act on one received payload.
+static void rx_command(const uint8_t *p, uint8_t len, uint8_t tree_id) {
+    if (len == 2 && p[0] == CMD_DAY) {
+        uint8_t day = p[1];
+        uint8_t on = (tree_id != TREE_ID_UNSET) && (day >= tree_id);    // IDs are 1..254
+        LED = on;
+        uart_puts("CMD: day ");
+        uart_putdec(day);
+        uart_puts(on ? ", LED on\r\n" : ", LED off\r\n");
+        return;
+    }
+    uart_puts("CMD: unknown, ignored\r\n");
 }
 
 #if DEBUG_RC_CHECK
@@ -286,8 +312,9 @@ void main(void) {
 
         if (GDO2_IOC_FLAG) {
             GDO2_IOC_FLAG = 0;
-            if (rx_read_packet()) {
-                LED = !LED;             // Toggle the LED on every good packet; it stays as set while asleep
+            uint8_t len = rx_read_packet();
+            if (len) {
+                rx_command(rx_buf + 1, len, tree_id);   // LED stays as set while asleep
             }
             rx_arm();
         }

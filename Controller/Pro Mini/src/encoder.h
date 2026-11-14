@@ -32,7 +32,7 @@ uint16_t    encoder_raw(void);              // Raw transition count, for testing
 uint8_t     encoder_ab(void);               // Current A (bit 0) and B (bit 1), for testing
 
 ButtonEvent button_event(void);             // Call often; returns each event once
-void        button_suppress(void);          // Treat the current press as used: no event for it
+void        button_wake_press(void);        // Current press woke us: no SHORT for it, LONG still works
 bool        button_is_down(void);           // Raw switch state (closed = true)
 void        button_wait_release(void);      // Block until open and stable for BUTTON_DEBOUNCE_MS
 

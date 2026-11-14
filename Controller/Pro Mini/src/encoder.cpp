@@ -97,7 +97,8 @@ void encoder_reset(void) {
 
 static bool     sw_stable_closed;
 static bool     sw_last_reading;
-static bool     sw_used;            // Current press already reported (long) or suppressed
+static bool     sw_used;            // Current press already reported as long
+static bool     sw_short_ok = true; // false for the waking press: its release is not a short press
 static uint32_t sw_changed_ms;
 static uint32_t sw_pressed_ms;
 
@@ -119,7 +120,8 @@ ButtonEvent button_event(void) {
         if (closed) {
             sw_pressed_ms = now;
             sw_used = false;
-        } else if (!sw_used) {
+            sw_short_ok = true;
+        } else if (!sw_used && sw_short_ok) {
             return BUTTON_SHORT;
         }
     }
@@ -131,13 +133,17 @@ ButtonEvent button_event(void) {
     return BUTTON_NONE;
 }
 
-// Mark the switch as pressed-and-used, so neither its release nor a long hold
-// produces an event. Used after the press that woke the controller.
-void button_suppress(void) {
+// Take over the press that woke the controller: treat the switch as pressed from now.
+// Releasing it gives no event (waking is all a short press does), but holding it for
+// BUTTON_LONG_MS still gives BUTTON_LONG, so a long press works straight from sleep.
+void button_wake_press(void) {
+    uint32_t now = millis();
     sw_stable_closed = true;
     sw_last_reading = true;
-    sw_used = true;
-    sw_changed_ms = millis();
+    sw_used = false;
+    sw_short_ok = false;
+    sw_changed_ms = now;
+    sw_pressed_ms = now;
 }
 
 void button_wait_release(void) {

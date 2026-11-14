@@ -21,5 +21,6 @@
 
 void modem_begin(void);
 bool modem_send(const uint8_t *payload, uint8_t len);
+bool modem_ready(void);     // true if modem_send() would not have to wait
 
 #endif

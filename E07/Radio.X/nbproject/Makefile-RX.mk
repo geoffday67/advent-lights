@@ -51,17 +51,17 @@ OBJECTDIR=build/${CND_CONF}/${IMAGE_TYPE}
 DISTDIR=dist/${CND_CONF}/${IMAGE_TYPE}
 
 # Source Files Quoted if spaced
-SOURCEFILES_QUOTED_IF_SPACED=board.c radio.c rx_main.c uart.c selftest.c
+SOURCEFILES_QUOTED_IF_SPACED=board.c radio.c rx_main.c selftest.c uart.c
 
 # Object Files Quoted if spaced
-OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/board.p1 ${OBJECTDIR}/radio.p1 ${OBJECTDIR}/rx_main.p1 ${OBJECTDIR}/uart.p1 ${OBJECTDIR}/selftest.p1
-POSSIBLE_DEPFILES=${OBJECTDIR}/board.p1.d ${OBJECTDIR}/radio.p1.d ${OBJECTDIR}/rx_main.p1.d ${OBJECTDIR}/uart.p1.d ${OBJECTDIR}/selftest.p1.d
+OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/board.p1 ${OBJECTDIR}/radio.p1 ${OBJECTDIR}/rx_main.p1 ${OBJECTDIR}/selftest.p1 ${OBJECTDIR}/uart.p1
+POSSIBLE_DEPFILES=${OBJECTDIR}/board.p1.d ${OBJECTDIR}/radio.p1.d ${OBJECTDIR}/rx_main.p1.d ${OBJECTDIR}/selftest.p1.d ${OBJECTDIR}/uart.p1.d
 
 # Object Files
-OBJECTFILES=${OBJECTDIR}/board.p1 ${OBJECTDIR}/radio.p1 ${OBJECTDIR}/rx_main.p1 ${OBJECTDIR}/uart.p1 ${OBJECTDIR}/selftest.p1
+OBJECTFILES=${OBJECTDIR}/board.p1 ${OBJECTDIR}/radio.p1 ${OBJECTDIR}/rx_main.p1 ${OBJECTDIR}/selftest.p1 ${OBJECTDIR}/uart.p1
 
 # Source Files
-SOURCEFILES=board.c radio.c rx_main.c uart.c selftest.c
+SOURCEFILES=board.c radio.c rx_main.c selftest.c uart.c
 
 
 
@@ -112,14 +112,6 @@ ${OBJECTDIR}/rx_main.p1: rx_main.c  nbproject/Makefile-${CND_CONF}.mk
 	@-${MV} ${OBJECTDIR}/rx_main.d ${OBJECTDIR}/rx_main.p1.d 
 	@${FIXDEPS} ${OBJECTDIR}/rx_main.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
 	
-${OBJECTDIR}/uart.p1: uart.c  nbproject/Makefile-${CND_CONF}.mk 
-	@${MKDIR} "${OBJECTDIR}" 
-	@${RM} ${OBJECTDIR}/uart.p1.d 
-	@${RM} ${OBJECTDIR}/uart.p1 
-	${MP_CC} $(MP_EXTRA_CC_PRE) -mcpu=$(MP_PROCESSOR_OPTION) -c  -D__DEBUG=1  -mdebugger=none   -mdfp="${DFP_DIR}/xc8"  -fno-short-double -fno-short-float -O0 -fasmfile -maddrqual=ignore -DROLE_RX -xassembler-with-cpp -mwarn=-3 -Wa,-a -DXPRJ_RX=$(CND_CONF)  -msummary=-psect,-class,+mem,-hex,-file  -ginhx32 -Wl,--data-init -mno-keep-startup -mno-osccal -mno-resetbits -mno-save-resetbits -mno-download -mno-stackcall -mno-default-config-bits $(COMPARISON_BUILD)  -std=c99 -gdwarf-3 -mstack=compiled:auto:auto     -o ${OBJECTDIR}/uart.p1 uart.c 
-	@-${MV} ${OBJECTDIR}/uart.d ${OBJECTDIR}/uart.p1.d 
-	@${FIXDEPS} ${OBJECTDIR}/uart.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
-	
 ${OBJECTDIR}/selftest.p1: selftest.c  nbproject/Makefile-${CND_CONF}.mk 
 	@${MKDIR} "${OBJECTDIR}" 
 	@${RM} ${OBJECTDIR}/selftest.p1.d 
@@ -127,6 +119,14 @@ ${OBJECTDIR}/selftest.p1: selftest.c  nbproject/Makefile-${CND_CONF}.mk
 	${MP_CC} $(MP_EXTRA_CC_PRE) -mcpu=$(MP_PROCESSOR_OPTION) -c  -D__DEBUG=1  -mdebugger=none   -mdfp="${DFP_DIR}/xc8"  -fno-short-double -fno-short-float -O0 -fasmfile -maddrqual=ignore -DROLE_RX -xassembler-with-cpp -mwarn=-3 -Wa,-a -DXPRJ_RX=$(CND_CONF)  -msummary=-psect,-class,+mem,-hex,-file  -ginhx32 -Wl,--data-init -mno-keep-startup -mno-osccal -mno-resetbits -mno-save-resetbits -mno-download -mno-stackcall -mno-default-config-bits $(COMPARISON_BUILD)  -std=c99 -gdwarf-3 -mstack=compiled:auto:auto     -o ${OBJECTDIR}/selftest.p1 selftest.c 
 	@-${MV} ${OBJECTDIR}/selftest.d ${OBJECTDIR}/selftest.p1.d 
 	@${FIXDEPS} ${OBJECTDIR}/selftest.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
+	
+${OBJECTDIR}/uart.p1: uart.c  nbproject/Makefile-${CND_CONF}.mk 
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/uart.p1.d 
+	@${RM} ${OBJECTDIR}/uart.p1 
+	${MP_CC} $(MP_EXTRA_CC_PRE) -mcpu=$(MP_PROCESSOR_OPTION) -c  -D__DEBUG=1  -mdebugger=none   -mdfp="${DFP_DIR}/xc8"  -fno-short-double -fno-short-float -O0 -fasmfile -maddrqual=ignore -DROLE_RX -xassembler-with-cpp -mwarn=-3 -Wa,-a -DXPRJ_RX=$(CND_CONF)  -msummary=-psect,-class,+mem,-hex,-file  -ginhx32 -Wl,--data-init -mno-keep-startup -mno-osccal -mno-resetbits -mno-save-resetbits -mno-download -mno-stackcall -mno-default-config-bits $(COMPARISON_BUILD)  -std=c99 -gdwarf-3 -mstack=compiled:auto:auto     -o ${OBJECTDIR}/uart.p1 uart.c 
+	@-${MV} ${OBJECTDIR}/uart.d ${OBJECTDIR}/uart.p1.d 
+	@${FIXDEPS} ${OBJECTDIR}/uart.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
 	
 else
 ${OBJECTDIR}/board.p1: board.c  nbproject/Makefile-${CND_CONF}.mk 
@@ -153,14 +153,6 @@ ${OBJECTDIR}/rx_main.p1: rx_main.c  nbproject/Makefile-${CND_CONF}.mk
 	@-${MV} ${OBJECTDIR}/rx_main.d ${OBJECTDIR}/rx_main.p1.d 
 	@${FIXDEPS} ${OBJECTDIR}/rx_main.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
 	
-${OBJECTDIR}/uart.p1: uart.c  nbproject/Makefile-${CND_CONF}.mk 
-	@${MKDIR} "${OBJECTDIR}" 
-	@${RM} ${OBJECTDIR}/uart.p1.d 
-	@${RM} ${OBJECTDIR}/uart.p1 
-	${MP_CC} $(MP_EXTRA_CC_PRE) -mcpu=$(MP_PROCESSOR_OPTION) -c   -mdfp="${DFP_DIR}/xc8"  -fno-short-double -fno-short-float -O0 -fasmfile -maddrqual=ignore -DROLE_RX -xassembler-with-cpp -mwarn=-3 -Wa,-a -DXPRJ_RX=$(CND_CONF)  -msummary=-psect,-class,+mem,-hex,-file  -ginhx32 -Wl,--data-init -mno-keep-startup -mno-osccal -mno-resetbits -mno-save-resetbits -mno-download -mno-stackcall -mno-default-config-bits $(COMPARISON_BUILD)  -std=c99 -gdwarf-3 -mstack=compiled:auto:auto     -o ${OBJECTDIR}/uart.p1 uart.c 
-	@-${MV} ${OBJECTDIR}/uart.d ${OBJECTDIR}/uart.p1.d 
-	@${FIXDEPS} ${OBJECTDIR}/uart.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
-	
 ${OBJECTDIR}/selftest.p1: selftest.c  nbproject/Makefile-${CND_CONF}.mk 
 	@${MKDIR} "${OBJECTDIR}" 
 	@${RM} ${OBJECTDIR}/selftest.p1.d 
@@ -168,6 +160,14 @@ ${OBJECTDIR}/selftest.p1: selftest.c  nbproject/Makefile-${CND_CONF}.mk
 	${MP_CC} $(MP_EXTRA_CC_PRE) -mcpu=$(MP_PROCESSOR_OPTION) -c   -mdfp="${DFP_DIR}/xc8"  -fno-short-double -fno-short-float -O0 -fasmfile -maddrqual=ignore -DROLE_RX -xassembler-with-cpp -mwarn=-3 -Wa,-a -DXPRJ_RX=$(CND_CONF)  -msummary=-psect,-class,+mem,-hex,-file  -ginhx32 -Wl,--data-init -mno-keep-startup -mno-osccal -mno-resetbits -mno-save-resetbits -mno-download -mno-stackcall -mno-default-config-bits $(COMPARISON_BUILD)  -std=c99 -gdwarf-3 -mstack=compiled:auto:auto     -o ${OBJECTDIR}/selftest.p1 selftest.c 
 	@-${MV} ${OBJECTDIR}/selftest.d ${OBJECTDIR}/selftest.p1.d 
 	@${FIXDEPS} ${OBJECTDIR}/selftest.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
+	
+${OBJECTDIR}/uart.p1: uart.c  nbproject/Makefile-${CND_CONF}.mk 
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/uart.p1.d 
+	@${RM} ${OBJECTDIR}/uart.p1 
+	${MP_CC} $(MP_EXTRA_CC_PRE) -mcpu=$(MP_PROCESSOR_OPTION) -c   -mdfp="${DFP_DIR}/xc8"  -fno-short-double -fno-short-float -O0 -fasmfile -maddrqual=ignore -DROLE_RX -xassembler-with-cpp -mwarn=-3 -Wa,-a -DXPRJ_RX=$(CND_CONF)  -msummary=-psect,-class,+mem,-hex,-file  -ginhx32 -Wl,--data-init -mno-keep-startup -mno-osccal -mno-resetbits -mno-save-resetbits -mno-download -mno-stackcall -mno-default-config-bits $(COMPARISON_BUILD)  -std=c99 -gdwarf-3 -mstack=compiled:auto:auto     -o ${OBJECTDIR}/uart.p1 uart.c 
+	@-${MV} ${OBJECTDIR}/uart.d ${OBJECTDIR}/uart.p1.d 
+	@${FIXDEPS} ${OBJECTDIR}/uart.p1.d $(SILENT) -rsi ${MP_CC_DIR}../  
 	
 endif
 

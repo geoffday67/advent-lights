@@ -3,17 +3,19 @@
  *
  * Two user interfaces, chosen with UI_FOLLOW at build time. Common to both:
  *   - Asleep: ATmega328P in power-down, OLED off. A press of the encoder button wakes it.
- *   - Wake: the stored day is restored and shown. Releasing the waking press does
- *     nothing more; holding it for BUTTON_LONG_MS is a long press (all off, sleep), so
- *     the trees can be turned off from sleep with one long press.
+ *   - Wake: the stored day is restored, shown, and sent to the trees once the waking
+ *     press is released, so trees turned off by a long press come back to it. Holding
+ *     the waking press for BUTTON_LONG_MS is a long press instead (all off, sleep).
+ *   - Every command is sent SEND_REPEATS times (currently 1), MODEM_MIN_GAP_MS apart.
+ *     A newer command replaces copies of an older one not yet sent.
  *   - Turn the encoder to change the day (DAY_MIN..DAY_MAX, stops at the ends).
  *   - Long press (BUTTON_LONG_MS): send day 0 = all trees off, then sleep.
  *
  * UI_FOLLOW 1 - trees follow the encoder:
- *   - Each change is sent as soon as the modem can take it (at most one message per
+ *   - Each change is queued at once and sent as the modem allows (one message per
  *     MODEM_MIN_GAP_MS); if the day changes again meanwhile, only the latest is sent.
- *   - FOLLOW_IDLE_MS with no turn: the latest day is sent if it hasn't been, and the
- *     controller sleeps.
+ *   - FOLLOW_IDLE_MS with no turn: any remaining copies are sent and the controller
+ *     sleeps.
  *   - Short press: send the shown day (even if unchanged, e.g. to turn the trees back on
  *     after a long press) and sleep at once.
  *   - Every sleep (idle, short or long press) stores the shown day in EEPROM, so the
@@ -39,13 +41,18 @@
 #define UI_FOLLOW           1
 
 // Day number range. 0 is reserved for "all trees off"; trees are numbered 1-25.
-#define DAY_MIN             0
-#define DAY_MAX             25
+#define DAY_MIN             1
+#define DAY_MAX             24
 #define DAY_DEFAULT         1       // Used if the EEPROM holds no valid day
 
 #define CMD_DAY             'D'     // Payload: CMD_DAY, day
 #define DAY_ALL_OFF         0
-#define DAY_NONE            0xFF    // last_sent_day: nothing sent since waking
+
+// Copies of each command, sent MODEM_MIN_GAP_MS apart. Was 3 for trees at the edge of
+// range; set to 1 on 22 Nov 2026 after the trees' WOR change (MCSM2 0x0D) fixed range.
+// Raise it again if trees miss commands: repeating is harmless, a tree just sets its
+// LED to the same state again.
+#define SEND_REPEATS        1
 
 #define FOLLOW_IDLE_MS      5000UL  // UI_FOLLOW: no turn for this long -> store and sleep
 #define CONFIRM_IDLE_MS     30000UL // Confirm UI: no turn or press -> sleep without sending
@@ -56,8 +63,16 @@
 uint8_t current_day;
 uint8_t stored_day;
 
-static uint8_t  last_sent_day;
 static uint32_t last_activity_ms;
+
+// Command being sent and the copies still to go. A new command replaces any copies
+// of the previous one that haven't gone yet.
+static uint8_t tx_day;
+static uint8_t tx_left;
+
+// Set at wake: send the shown day once the waking press is released (unless it turns
+// into a long press, which sends all-off instead).
+static bool wake_send_pending;
 
 static void show_day(void) {
     display_show_number(current_day);
@@ -81,13 +96,39 @@ static bool day_adjust(int8_t steps) {
     return true;
 }
 
-// Send a day command. modem_send() waits if the previous message was too recent.
-static void send_day(uint8_t d) {
-    uint8_t payload[2] = { CMD_DAY, d };
+// Queue a day command for SEND_REPEATS copies.
+static void queue_day(uint8_t d) {
+    tx_day = d;
+    tx_left = SEND_REPEATS;
+}
+
+// Send one copy of the queued command. modem_send() waits if the previous message
+// was less than MODEM_MIN_GAP_MS ago.
+static void send_copy(void) {
+    uint8_t payload[2] = { CMD_DAY, tx_day };
     modem_send(payload, sizeof payload);
-    last_sent_day = d;
+    tx_left--;
     Serial.print(F("SEND: day "));
-    Serial.println(d);
+    Serial.print(tx_day);
+    Serial.print(F(" ("));
+    Serial.print(SEND_REPEATS - tx_left);
+    Serial.print(F("/"));
+    Serial.print(SEND_REPEATS);
+    Serial.println(F(")"));
+}
+
+// Non-blocking: send the next copy only if the modem can take it now.
+static void service_tx(void) {
+    if (tx_left && modem_ready()) {
+        send_copy();
+    }
+}
+
+// Blocking: send all remaining copies (about 0.4s each), e.g. before sleeping.
+static void flush_tx(void) {
+    while (tx_left) {
+        send_copy();
+    }
 }
 
 static void store_day(void) {
@@ -109,6 +150,7 @@ static void sleep_until_press(void) {
 
     uint8_t adcsra = ADCSRA;
     ADCSRA &= (uint8_t)~_BV(ADEN);      // ADC off for the lowest power-down current
+    encoder_sleep();                    // No pull-up current through a closed contact
 
     do {
         PCIFR = _BV(PCIF2);             // Clear any stale pin-change flag
@@ -128,6 +170,7 @@ static void sleep_until_press(void) {
         delay(BUTTON_DEBOUNCE_MS);
     } while (!button_is_down());        // Woken by noise or a bounce: sleep again
 
+    encoder_wake();
     ADCSRA = adcsra;
 }
 
@@ -137,7 +180,8 @@ static void wake_up(void) {
     encoder_reset();
     button_wake_press();
     current_day = stored_day;
-    last_sent_day = DAY_NONE;
+    tx_left = 0;
+    wake_send_pending = true;
     display_power(true);
     Serial.println(F("WAKE"));
     show_day();
@@ -147,7 +191,9 @@ static void wake_up(void) {
 // UI_FOLLOW: the shown day is stored every time the controller goes to sleep,
 // whatever sent it there (idle, short press or long press), so the next wake shows it.
 // The confirm UI only stores on a short press; anything unconfirmed is dropped.
+// All queued copies are sent before sleeping.
 static void sleep_then_wake(void) {
+    flush_tx();
 #if UI_FOLLOW
     store_day();
 #endif
@@ -155,9 +201,65 @@ static void sleep_then_wake(void) {
     wake_up();
 }
 
+// Reset cause, for diagnosing unexpected restarts. MCUSR (ATmega328P MCU Status Register)
+// keeps its flags until cleared, unless the bootloader clears it first.
+//
+// RESET_LOG 1: each boot's MCUSR is also saved in an 8-entry ring in EEPROM (bytes
+// RESET_LOG_ADDR..+7, next-slot index at RESET_LOG_ADDR + 8), and the whole history is
+// printed at start-up, oldest first. So restarts that happen with the serial adapter
+// unplugged can be read later. Connecting the adapter resets the Mini through DTR,
+// so the newest entry is then normally "reset pin". Two EEPROM writes per boot.
+#define RESET_LOG           0
+#define RESET_LOG_ADDR      1
+#define RESET_LOG_SIZE      8
+
+static void print_cause(uint8_t mcusr) {
+    Serial.print(F("0x"));
+    Serial.print(mcusr, HEX);
+    Serial.print(F(":"));
+    if (mcusr & _BV(PORF))  Serial.print(F(" power-on"));
+    if (mcusr & _BV(EXTRF)) Serial.print(F(" reset-pin"));
+    if (mcusr & _BV(BORF))  Serial.print(F(" brown-out"));
+    if (mcusr & _BV(WDRF))  Serial.print(F(" watchdog"));
+    if (mcusr == 0)         Serial.print(F(" none (cleared by bootloader, or a jump to address 0)"));
+    Serial.println();
+}
+
+static void print_reset_cause(void) {
+    uint8_t mcusr = MCUSR;
+    MCUSR = 0;
+
+#if RESET_LOG
+    uint8_t next = EEPROM.read(RESET_LOG_ADDR + RESET_LOG_SIZE);
+    if (next >= RESET_LOG_SIZE) {               // Erased EEPROM: start a fresh log
+        next = 0;
+        for (uint8_t i = 0; i < RESET_LOG_SIZE; i++) {
+            EEPROM.update(RESET_LOG_ADDR + i, 0xFF);
+        }
+    }
+    EEPROM.update(RESET_LOG_ADDR + next, mcusr);
+    next = (uint8_t)((next + 1) % RESET_LOG_SIZE);
+    EEPROM.update(RESET_LOG_ADDR + RESET_LOG_SIZE, next);
+
+    Serial.println(F("Reset log, oldest first:"));
+    for (uint8_t i = 0; i < RESET_LOG_SIZE; i++) {
+        uint8_t v = EEPROM.read(RESET_LOG_ADDR + (next + i) % RESET_LOG_SIZE);
+        if (v == 0xFF) {
+            continue;                           // Unused slot
+        }
+        Serial.print(F("  "));
+        print_cause(v);
+    }
+#endif
+
+    Serial.print(F("Reset cause (this boot) "));
+    print_cause(mcusr);
+}
+
 void setup() {
     Serial.begin(38400);
     Serial.println(F("\r\nController"));
+    print_reset_cause();
     modem_begin();
     encoder_begin();
     display_begin();
@@ -179,43 +281,45 @@ void loop() {
         last_activity_ms = millis();
         if (day_adjust(steps)) {
             show_day();
+#if UI_FOLLOW
+            queue_day(current_day);     // Trees follow; replaces any older pending copies
+#endif
         }
     }
 
     ButtonEvent button = button_event();
 
     if (button == BUTTON_LONG) {
-        send_day(DAY_ALL_OFF);
+        wake_send_pending = false;
+        queue_day(DAY_ALL_OFF);
         sleep_then_wake();
         return;
     }
 
-#if UI_FOLLOW
-    // A changed day goes out as soon as the modem can take it. Only the stored day at
-    // wake counts as "already on the trees" if nothing has been sent since; the first
-    // change after waking is always sent.
-    bool changed = current_day != (last_sent_day == DAY_NONE ? stored_day : last_sent_day);
-    if (changed && modem_ready()) {
-        send_day(current_day);
+    // Wake command: once the waking press is released (not a long press), send the shown
+    // day, so trees left all off by a long press go back to it without choosing again.
+    if (wake_send_pending && !button_is_down()) {
+        wake_send_pending = false;
+        queue_day(current_day);
     }
 
+    service_tx();
+
+#if UI_FOLLOW
     if (button == BUTTON_SHORT) {
-        send_day(current_day);          // Even if unchanged: re-sends after a long press
+        queue_day(current_day);         // Even if unchanged: re-sends the shown day
         sleep_then_wake();
         return;
     }
 
     if (millis() - last_activity_ms >= FOLLOW_IDLE_MS) {
-        if (current_day != (last_sent_day == DAY_NONE ? stored_day : last_sent_day)) {
-            send_day(current_day);      // Waits for the modem gap if needed
-        }
         Serial.println(F("IDLE"));
-        sleep_then_wake();
+        sleep_then_wake();              // Sends any remaining copies first
     }
 #else
     if (button == BUTTON_SHORT) {
         store_day();
-        send_day(current_day);
+        queue_day(current_day);
         sleep_then_wake();
         return;
     }

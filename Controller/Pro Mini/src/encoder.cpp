@@ -80,7 +80,38 @@ int8_t encoder_take(void) {
     int8_t d = detents;
     detents = 0;
     interrupts();
+#if ENCODER_REVERSE
+    return (int8_t)-d;
+#else
     return d;
+#endif
+}
+
+// Before power-down: remove the A/B pull-ups so no current can flow through a closed
+// contact, whatever position the knob is left in or turned to while asleep (each closed
+// contact otherwise draws about 100uA through the internal pull-up at 3.3V).
+// With the pull-ups off, an open contact leaves its pin floating. That is safe only
+// because INT0/INT1 are disabled here as well: in power-down the input buffers are
+// clamped (the SLEEP signal, ATmega328P "Digital Input Enable and Sleep Modes"), but
+// not on pins enabled as external interrupts. D2/D3 are not in PCMSK2 either, so their
+// buffers are clamped and a floating level draws no current.
+// Relies on the encoder board's own A/B pull-up resistors being removed (see encoder.h).
+void encoder_sleep(void) {
+    EIMSK &= (uint8_t)~(_BV(INT0) | _BV(INT1));
+    pinMode(ENCODER_A_PIN, INPUT);
+    pinMode(ENCODER_B_PIN, INPUT);
+}
+
+// After wake: pull-ups back on, let them settle, clear any edge flags set while the
+// interrupts were off, re-enable INT0/INT1 and resync, so the mode change and any
+// turning while asleep don't count as clicks.
+void encoder_wake(void) {
+    pinMode(ENCODER_A_PIN, INPUT_PULLUP);
+    pinMode(ENCODER_B_PIN, INPUT_PULLUP);
+    delayMicroseconds(100);
+    EIFR = _BV(INTF0) | _BV(INTF1);
+    EIMSK |= _BV(INT0) | _BV(INT1);
+    encoder_reset();
 }
 
 void encoder_reset(void) {

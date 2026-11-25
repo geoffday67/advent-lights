@@ -1,6 +1,12 @@
 /*
  * encoder.h - Rotary encoder with push switch.
  * A = D2 (INT0), B = D3 (INT1), switch = D4, common to GND. Inputs use INPUT_PULLUP.
+ *
+ * Hardware: KY-040-type board with its A/B (CLK/DT) pull-up resistors removed. A and B
+ * use only the ATmega's internal pull-ups, which encoder_sleep() switches off for
+ * power-down, so the A/B contacts draw nothing in sleep. The switch pull-up (SW to +)
+ * is kept and the board's + pin is on VCC: it only draws while the button is held, and
+ * it keeps D4 high for the wake-up press.
  */
 #ifndef ENCODER_H
 #define ENCODER_H
@@ -16,6 +22,9 @@
 // type that rests alternately at A = B = 1 and A = B = 0.
 #define ENCODER_STEPS_PER_DETENT 4
 
+// 1 = reverse the direction: the rotation that used to count up now counts down.
+#define ENCODER_REVERSE         1
+
 #define BUTTON_DEBOUNCE_MS      20
 #define BUTTON_LONG_MS          1000    // Held this long = long press
 
@@ -27,6 +36,8 @@ enum ButtonEvent : uint8_t {
 
 void        encoder_begin(void);
 void        encoder_reset(void);            // Resync to the current pin state, drop pending detents
+void        encoder_sleep(void);            // Before power-down: stop pull-up current through closed contacts
+void        encoder_wake(void);             // After power-down: restore pull-ups and resync
 int8_t      encoder_take(void);             // Detents turned since the last call (+ / -)
 uint16_t    encoder_raw(void);              // Raw transition count, for testing
 uint8_t     encoder_ab(void);               // Current A (bit 0) and B (bit 1), for testing

@@ -23,7 +23,13 @@
 // hex file. The placeholder below reserves the word in MPLAB builds; 0xFF = not set.
 #define TREE_ID_ADDR    0x1FFF
 #define TREE_ID_UNSET   0xFF
-const uint8_t tree_id_placeholder __at(TREE_ID_ADDR) = TREE_ID_UNSET;
+
+// Testing: the ID built into the MPLAB hex, so a board can be flashed straight from
+// MPLAB with a working ID. TREE_ID_UNSET (0xFF) for release builds. patch_id.py still
+// overwrites this word, whatever it holds, when making the per-tree hex files.
+#define TREE_ID_BUILD   TREE_ID_UNSET
+
+const uint8_t tree_id_placeholder __at(TREE_ID_ADDR) = TREE_ID_BUILD;
 
 // Read the low byte of the ID word through the NVM controller (datasheet Example 15-1),
 // so the compiler cannot replace the read with the placeholder's build-time value.
@@ -43,11 +49,17 @@ static uint8_t tree_id_read(void) {
 // packet problems from WOR timing problems. 0 = normal wake-on-radio.
 #define RX_CONTINUOUS 0
 
-// MCSM2 in WOR mode. Normal value 0x1D. Debug values to bisect a WOR problem:
-//   0x07  RX_TIME = 7: first WOR wake stays in RX until a packet (tests that WOR wakes at all)
-//   0x0D  RX_TIME_QUAL only: stay in RX if PQT reached (tests PQT, bypasses carrier sense)
-//   0x1D  RX_TIME_RSSI + RX_TIME_QUAL: normal low-power setting
-#define WOR_MCSM2 0x1D
+// MCSM2 in WOR mode. Normal value 0x0D (22 Nov 2026):
+//   0x0D  RX_TIME_QUAL only: every wake stays in RX for the full RX_TIME (~0.98 ms) and
+//         stays on if the preamble quality threshold is reached. Wakes are not gated on
+//         carrier sense, so reception reaches the demodulator's sensitivity (~-95 dBm at
+//         250 kBaud). Measured 86 uA average. Much better range and reliability.
+//   0x1D  RX_TIME_RSSI + RX_TIME_QUAL: leaves RX ~0.09 ms after each wake unless RSSI is
+//         above the carrier-sense threshold, about -72.5 dBm with AGCCTRL2 = 0xC7 and
+//         AGCCTRL1 = 0x00 (datasheet Table 33). Measured 25.6 uA but marginal range.
+//   0x07  Debug: RX_TIME = 7, first WOR wake stays in RX until a packet (tests that WOR
+//         wakes at all).
+#define WOR_MCSM2 0x0D
 
 // WORCTRL.EVENT1: delay from Event 0 (crystal start) to Event 1 (RX strobe).
 // 3 = 346 us, 4 = 462 us, 5 = 692 us, 6 = 923 us, 7 = 1.385 ms (AN047 Table 1).
@@ -71,8 +83,8 @@ static uint8_t tree_id_read(void) {
 static const uint8_t rx_config[][2] = {
     // PQT = 2 (threshold 8), CRC_AUTOFLUSH = 0, APPEND_STATUS = 1, no address check.
     { CC1101_PKTCTRL1, 0x44 },
-    // RX_TIME_RSSI = 1: leave RX at once if no carrier.
-    // RX_TIME_QUAL = 1: at timeout, stay in RX if sync word found or PQT reached.
+    // WOR_MCSM2 (see above): RX_TIME_QUAL = 1, at timeout stay in RX if sync word found
+    // or PQT reached; RX_TIME_RSSI = 0, no carrier-sense early exit.
     // RX_TIME = 5: timeout = EVENT0 * 0.1127 us = 0.98 ms (AN047 Table 6).
 #if RX_CONTINUOUS
     { CC1101_MCSM2,    0x07 },          // RX_TIME = 7: no timeout, stay in RX until a packet arrives
@@ -256,6 +268,12 @@ static void rc_check(void) {
 
 void main(void) {
     clock_init();
+    // Battery insertion bounces: let the supply settle before touching the radio.
+    // Pins are still at their reset state (inputs), so the LED is off. PWRT (64ms)
+    // and BOR (1.9V) in board.c reset cleanly on any dropout before this point.
+    for (uint8_t i = 0; i < 5; i++) {
+        __delay_ms(50);                 // 5 x 50ms = 250ms
+    }
     selftest_pins();                    // Before pins_init(): drives PORTC pins directly
     pins_init();
     uart_init();
